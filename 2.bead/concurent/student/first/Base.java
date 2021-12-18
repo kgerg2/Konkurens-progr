@@ -7,6 +7,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class Base {
 
@@ -46,95 +48,28 @@ public class Base {
 
         // TODO Build 3 farms - use getFreePeasant() method to see if there is a peasant
         // without any work
-        executor.submit(() -> {
-            int farmCount = 0;
-            while (farmCount < 3) {
-                Peasant free = getFreePeasant();
-                if (free != null && free.tryBuilding(UnitType.FARM)) {
-                    farmCount++;
-                }
-                sleepForMsec(10);
-            }
-            while (!hasEnoughBuilding(UnitType.FARM, 3)) {
-                sleepForMsec(10);
-            }
-        });
+        build(executor, UnitType.FARM, 3);
 
         // TODO Create remaining 5 peasants - Use the PEASANT_NUMBER_GOAL constant
         // TODO 5 of them should mine gold
-        executor.submit(() -> {
-            int goldMinerCount = 3;
-            while (goldMinerCount < 5) {
-                Peasant newPeasant = createPeasant();
-                if (newPeasant != null) {
-                    newPeasant.startMining();
-                    peasants.add(newPeasant);
-                    goldMinerCount++;
-                }
-                sleepForMsec(10);
-            }
-        });
-        
+        train(executor, 3, 5, Peasant::startMining);
+
         // TODO 2 of them should cut tree
-        executor.submit(() -> {
-            int treeCutterCount = 1;
-            while (treeCutterCount < 2) {
-                Peasant newPeasant = createPeasant();
-                if (newPeasant != null) {
-                    newPeasant.startMining();
-                    peasants.add(newPeasant);
-                    treeCutterCount++;
-                }
-                sleepForMsec(10);
-            }
-        });
-        
+        train(executor, 1, 2, Peasant::startCuttingWood);
+
         // TODO 3 of them should do nothing
-        executor.submit(() -> {
-            int freeCount = 1;
-            while (freeCount < 3) {
-                Peasant newPeasant = createPeasant();
-                if (newPeasant != null) {
-                    peasants.add(newPeasant);
-                    freeCount++;
-                }
-                sleepForMsec(10);
-            }
+        train(executor, 1, 3, p -> {
         });
 
         // TODO Use the createPeasant() method
 
         // TODO Build a lumbermill - use getFreePeasant() method to see if there is a
         // peasant without any work
-        executor.submit(() -> {
-            int lumbermillCount = 0;
-            while (lumbermillCount < 1) {
-                Peasant free = getFreePeasant();
-                if (free != null && free.tryBuilding(UnitType.LUMBERMILL)) {
-                    lumbermillCount++;
-                }
-                sleepForMsec(10);
-            }
-            while (!hasEnoughBuilding(UnitType.LUMBERMILL, 1)) {
-                sleepForMsec(10);
-            }
-        });
+        build(executor, UnitType.LUMBERMILL, 1);
 
         // TODO Build a blacksmith - use getFreePeasant() method to see if there is a
         // peasant without any work
-        executor.submit(() -> {
-            int blacksmithCount = 0;
-            while (blacksmithCount < 1) {
-                Peasant free = getFreePeasant();
-                if (free != null && free.tryBuilding(UnitType.BLACKSMITH)) {
-                    blacksmithCount++;
-                }
-                sleepForMsec(10);
-            }
-            while (!hasEnoughBuilding(UnitType.BLACKSMITH, 1)) {
-                sleepForMsec(10);
-            }
-        });
+        build(executor, UnitType.BLACKSMITH, 1);
 
         // TODO Wait for all the necessary preparations to finish
         executor.shutdown();
@@ -158,6 +93,49 @@ public class Base {
             System.out.println(this.name + " has a  " + b.getUnitType().toString());
         }
 
+    }
+
+    private void train(ExecutorService executor, int count, int required, Consumer<Peasant> action) {
+        executor.submit(() -> {
+            int goldMinerCount = count;
+            while (goldMinerCount < required) {
+                Peasant newPeasant = createPeasant();
+                if (newPeasant != null) {
+                    action.accept(newPeasant);
+                    peasants.add(newPeasant);
+                    goldMinerCount++;
+                } else {
+                    sleepForMsec(10);
+                }
+            }
+        });
+    }
+
+    private void build(ExecutorService executor, UnitType type, int required) {
+        // for (int i = 0; i < required; i++) {
+        // executor.submit(() -> {
+        // Peasant p;
+        // do {
+        // do {
+        // p = getFreePeasant();
+        // } while (p == null);
+        // } while (!p.tryBuilding(type));
+        // });
+        // }
+        executor.submit(() -> {
+            int count = 0;
+            while (count < required) {
+                Peasant free = getFreePeasant();
+                if (free != null && free.tryBuilding(type)) {
+                    count++;
+                } else {
+                    sleepForMsec(10);
+                }
+            }
+            while (!hasEnoughBuilding(type, required)) {
+                sleepForMsec(10);
+            }
+        });
     }
 
     /**
@@ -236,7 +214,7 @@ public class Base {
      */
     private boolean hasEnoughBuilding(UnitType unitType, int required) {
         // TODO check in the buildings list if the type has reached the required amount
-        synchronized(buildings) {
+        synchronized (buildings) {
             int count = 0;
             for (Building building : buildings) {
                 if (building.getUnitType() == unitType) {
