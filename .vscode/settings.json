@@ -2,6 +2,7 @@
     "java.project.sourcePaths": [
         "2.ora",
         "1.ora",
-        "1.bead"
+        "1.bead",
+        "2.bead"
     ]
 }
