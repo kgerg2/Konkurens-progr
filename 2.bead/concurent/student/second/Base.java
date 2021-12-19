@@ -4,16 +4,22 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class Base {
 
     private static final int STARTER_PEASANT_NUMBER = 5;
     private static final int PEASANT_NUMBER_GOAL = 10;
+    private static final int FOOTMAN_NUMBER_GOAL = 10;
 
     // lock to ensure only one unit can be trained at one time
     private final ReentrantLock trainingLock = new ReentrantLock();
+    private final ReentrantLock footmanTrainingLock = new ReentrantLock();
 
     private final String name;
     private final Resources resources = new Resources();
@@ -22,50 +28,131 @@ public class Base {
     private final List<Building> buildings = Collections.synchronizedList(new LinkedList<>());
     private final List<Personnel> army = Collections.synchronizedList(new LinkedList<>());
 
-    public Base(String name){
+    public Base(String name) {
         this.name = name;
-        // TODO Create the initial 5 peasants - Use the STARTER_PEASANT_NUMBER constant
-        // TODO 3 of them should mine gold
-        // TODO 1 of them should cut tree
-        // TODO 1 should do nothing
-        // TODO Use the createPeasant() method
+
+        for (int i = 0; i < STARTER_PEASANT_NUMBER; i++) {
+            peasants.add(Peasant.createPeasant(this));
+        }
+
+        for (int i = 0; i < 3; i++) {
+            peasants.get(i).startMining();
+        }
+
+        peasants.get(3).startCuttingWood();
     }
 
-    public void startPreparation(){
-        // TODO Start the building and training preparations on separate threads
-        // TODO Tip: use the hasEnoughBuilding method
+    public void startPreparation() {
+        ExecutorService executor = Executors.newCachedThreadPool();
 
-        // TODO Build 3 farms - use getFreePeasant() method to see if there is a peasant without any work
+        build(executor, UnitType.FARM, 3);
 
-        // TODO Create remaining 5 peasants - Use the PEASANT_NUMBER_GOAL constant
-        // TODO 5 of them should mine gold
-        // TODO 2 of them should cut tree
-        // TODO 3 of them should do nothing
-        // TODO Use the createPeasant() method
+        train(executor, 3, 5, Peasant::startMining, this::createPeasant, peasants);
+        train(executor, 1, 2, Peasant::startCuttingWood, this::createPeasant, peasants);
+        train(executor, 1, 3, p -> {}, this::createPeasant, peasants);
 
-        // TODO Build a lumbermill - use getFreePeasant() method to see if there is a peasant without any work
+        build(executor, UnitType.LUMBERMILL, 1);
+        build(executor, UnitType.BLACKSMITH, 1);
+        build(executor, UnitType.BARRACKS, 1);
 
-        // TODO Build a blacksmith - use getFreePeasant() method to see if there is a peasant without any work
+        train(executor, 0, FOOTMAN_NUMBER_GOAL, f -> {}, this::createFootman, footmen);
 
-        // TODO Build a barracks - use getFreePeasant() method to see if there is a peasant without any work
+        // executor.submit(() -> {
+        //     int count = 0;
+        //     while (count < FOOTMAN_NUMBER_GOAL) {
+        //         Footman footman = createFootman();
+        //         if (footman != null) {
+        //             footmen.add(footman);
+        //             count++;
+        //         } else {
+        //             sleepForMsec(10);
+        //         }
+        //     }
+        // });
 
-        // TODO Wait for all the necessary preparations to finish
+        executor.shutdown();
+        try {
+            executor.awaitTermination(1, TimeUnit.HOURS);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
 
-        // TODO Stop harvesting with the peasants once everything is ready
+        synchronized (peasants) {
+            for (Peasant peasant : peasants) {
+                peasant.stopHarvesting();
+            }
+        }
+
         System.out.println(this.name + " finished creating a base");
         System.out.println(this.name + " peasants: " + this.peasants.size());
         System.out.println(this.name + " footmen: " + this.footmen.size());
-        for(Building b : buildings){
+        for (Building b : buildings) {
             System.out.println(this.name + " has a  " + b.getUnitType().toString());
         }
     }
 
+    private <T extends Personnel> void train(ExecutorService executor, int count, int required, Consumer<T> action, Supplier<T> supplier, List<T> list) {
+        executor.submit(() -> {
+            int personellCount = count;
+            while (personellCount < required) {
+                T personell = supplier.get();
+                if (personell != null) {
+                    action.accept(personell);
+                    list.add(personell);
+                    personellCount++;
+                } else {
+                    sleepForMsec(10);
+                }
+            }
+        });
+    }
+
+    private void build(ExecutorService executor, UnitType type, int required) {
+        executor.submit(() -> {
+            int count = 0;
+            while (count < required) {
+                Peasant free = getFreePeasant();
+                if (free != null && free.tryBuilding(type)) {
+                    count++;
+                } else {
+                    sleepForMsec(10);
+                }
+            }
+            while (!hasEnoughBuilding(type, required)) {
+                sleepForMsec(10);
+            }
+        });
+    }
+
     /**
      * Assemble the army - call the peasants and footmen to arms
+     * 
      * @param latch
      */
-    public void assembleArmy(CountDownLatch latch){
-        // TODO Add the peasants and footmen to the army
+    public void assembleArmy(CountDownLatch latch) {
+        synchronized (footmen) {
+            for (Footman footman : footmen) {
+                army.add(footman);
+            }
+        }
+        ExecutorService executor = Executors.newCachedThreadPool();
+        synchronized (peasants) {
+            for (Peasant peasant : peasants) {
+                executor.submit(() -> {
+                    while (!peasant.isFree()) {
+                        sleepForMsec(10);
+                    }
+                    army.add(peasant);
+                });
+            }
+        }
+        executor.shutdown();
+        try {
+            executor.awaitTermination(1, TimeUnit.HOURS);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
         System.out.println(this.name + " is ready for war");
         // the latch is used to keep track of both factions
         latch.countDown();
@@ -74,10 +161,10 @@ public class Base {
     /**
      * Starts a war between the two bases.
      *
-     * @param enemy Enemy base's personnel
+     * @param enemy    Enemy base's personnel
      * @param warLatch Latch to make sure they attack at the same time
      */
-    public void goToWar(List<Personnel> enemy, CountDownLatch warLatch){
+    public void goToWar(List<Personnel> enemy, CountDownLatch warLatch) {
         // This is necessary to ensure that both armies attack at the same time
         warLatch.countDown();
         try {
@@ -86,11 +173,33 @@ public class Base {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        // TODO Start attacking the enemy with every soldier on a separate thread
-        // TODO Wait until the fight is resolved
+
+        Thread[] threads;
+
+        synchronized (army) {
+            threads = new Thread[army.size()];
+            for (int i = 0; i < threads.length; i++) {
+                int I = i;
+                threads[i] = new Thread(() -> {
+                    army.get(I).startWar(enemy);
+                });
+            }
+        }
+
+        for (Thread thread : threads) {
+            thread.start();
+        }
+
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
 
         // If our army has no personnel, we failed
-        if(army.isEmpty()){
+        if (army.isEmpty()) {
             System.out.println(this.name + " has lost the fight");
         } else {
             System.out.println(this.name + " has won the fight");
@@ -100,13 +209,20 @@ public class Base {
     /**
      * Resolves the event when a personnel dies;
      * Remove it from the army and update the capacity.
+     * 
      * @param p The fallen personnel
      */
-    public void signalPersonnelDeath(Personnel p){
-        // TODO Update resource capacity (this personnel no longer requires the food obviously)
-        // TODO Remove from army (and any other container)
-        System.out.println(this.name + " has lost a " + p.getUnitType().toString());
+    public void signalPersonnelDeath(Personnel p) {
+        resources.updateCapacity(-p.getUnitType().foodCost);
 
+        army.remove(p);
+        if (p.getUnitType() == UnitType.FOOTMAN) {
+            footmen.remove(p);
+        } else {
+            peasants.remove(p);
+        }
+
+        System.out.println(this.name + " has lost a " + p.getUnitType().toString());
     }
 
     /**
@@ -115,8 +231,14 @@ public class Base {
      *
      * @return Peasant object, if found one, null if there isn't one
      */
-    private Peasant getFreePeasant(){
-        // TODO implement - use the peasant's isFree() method
+    private Peasant getFreePeasant() {
+        synchronized (peasants) {
+            for (Peasant peasant : peasants) {
+                if (peasant.isFree()) {
+                    return peasant;
+                }
+            }
+        }
         return null;
     }
 
@@ -129,64 +251,88 @@ public class Base {
      *
      * @return The newly created peasant if it could be trained, null otherwise
      */
-    private Peasant createPeasant(){
+    private Peasant createPeasant() {
         Peasant result;
-        if(resources.canTrain(UnitType.PEASANT.goldCost, UnitType.PEASANT.woodCost, UnitType.PEASANT.foodCost)){
+        if (resources.canTrain(UnitType.PEASANT.goldCost, UnitType.PEASANT.woodCost, UnitType.PEASANT.foodCost)) {
+            try {
+                trainingLock.lockInterruptibly();
 
-            // TODO 1: Sleep as long as it takes to create a peasant - use sleepForMsec() method
-            // TODO 2: Remove costs
-            // TODO 3: Update capacity
-            // TODO 4: Use the Peasant class' createPeasant method to create the new Peasant
+                sleepForMsec(UnitType.PEASANT.buildTime);
+                resources.removeCost(UnitType.PEASANT.goldCost, UnitType.PEASANT.woodCost);
+                resources.updateCapacity(UnitType.PEASANT.foodCost);
+                result = Peasant.createPeasant(this);
+                System.out.println(this.name + " created a peasant");
 
-            // TODO Remember that at one time only one peasant can be trained
-            System.out.println(this.name + " created a peasant");
-            // return result;
+                return result;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } finally {
+                trainingLock.unlock();
+            }
         }
         return null;
     }
 
-    private Footman createFootman(){
+    private Footman createFootman() {
         Footman result;
-        if(resources.canTrain(UnitType.FOOTMAN.goldCost, UnitType.FOOTMAN.woodCost, UnitType.FOOTMAN.foodCost) &&
-                false ){  // TODO Check if a barracks is built already
+        if (resources.canTrain(UnitType.FOOTMAN.goldCost, UnitType.FOOTMAN.woodCost, UnitType.FOOTMAN.foodCost) &&
+                hasEnoughBuilding(UnitType.BARRACKS, 1)) {
 
-            // TODO 1: Sleep as long as it takes to create a footman - use sleepForMsec() method
-            // TODO 2: Remove costs
-            // TODO 3: Update capacity
-            // TODO 4: Use the Footman class' createFootman method to create the new Footman
+            try {
+                footmanTrainingLock.lockInterruptibly();
 
-            // TODO Remember that at one time only one footman can be trained
-            System.out.println(this.name + " created a footman");
-            // return result;
+                sleepForMsec(UnitType.FOOTMAN.buildTime);
+                resources.removeCost(UnitType.FOOTMAN.goldCost, UnitType.FOOTMAN.woodCost);
+                resources.updateCapacity(UnitType.FOOTMAN.foodCost);
+                result = Footman.createFootman(this);
+                System.out.println(this.name + " created a footman");
+
+                return result;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } finally {
+                footmanTrainingLock.unlock();
+            }
         }
         return null;
     }
 
-    public Resources getResources(){
+    public Resources getResources() {
         return this.resources;
     }
 
-    public List<Personnel> getArmy(){
+    public List<Personnel> getArmy() {
         return this.army;
     }
 
-    public List<Building> getBuildings(){
+    public List<Building> getBuildings() {
         return this.buildings;
     }
 
-    public String getName(){
+    public String getName() {
         return this.name;
     }
 
     /**
-     * Helper method to determine if a base has the required number of a certain building.
+     * Helper method to determine if a base has the required number of a certain
+     * building.
      *
      * @param unitType Type of the building
      * @param required Number of required amount
      * @return true, if required amount is reached (or surpassed), false otherwise
      */
-    private boolean hasEnoughBuilding(UnitType unitType, int required){
-        // TODO check in the buildings list if the type has reached the required amount
+    private boolean hasEnoughBuilding(UnitType unitType, int required) {
+        synchronized (buildings) {
+            int count = 0;
+            for (Building building : buildings) {
+                if (building.getUnitType() == unitType) {
+                    count++;
+                    if (count == required) {
+                        return true;
+                    }
+                }
+            }
+        }
         return false;
     }
 

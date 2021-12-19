@@ -1,8 +1,5 @@
 package concurent.student.first;
 
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Peasant extends Unit {
@@ -61,10 +58,6 @@ public class Peasant extends Unit {
      * Starts gathering gold.
      */
     public void startMining() {
-        // TODO Set isHarvesting to true
-        // TODO Start harvesting on a new thread
-        // TODO Harvesting: Sleep for HARVEST_WAIT_TIME, then add the resource -
-        // HARVEST_AMOUNT
         System.out.println("Peasant starting mining");
         startHarvesting(() -> getOwner().getResources().addGold(HARVEST_AMOUNT));
     }
@@ -73,10 +66,6 @@ public class Peasant extends Unit {
      * Starts gathering wood.
      */
     public void startCuttingWood() {
-        // TODO Set isHarvesting to true
-        // TODO Start harvesting on a new thread
-        // TODO Harvesting: Sleep for HARVEST_WAIT_TIME, then add the resource -
-        // HARVEST_AMOUNT
         System.out.println("Peasant starting cutting wood");
         startHarvesting(() -> getOwner().getResources().addWood(HARVEST_AMOUNT));
     }
@@ -98,12 +87,9 @@ public class Peasant extends Unit {
      *         false, if there are insufficient resources
      */
     public boolean tryBuilding(UnitType buildingType) {
-        // TODO Start building on a separate thread if there are enough resources
-        // TODO Use the Resources class' canBuild method to determine
-        // TODO Use the startBuilding method if the process can be started
         if (this.getOwner().getResources().canBuild(buildingType.goldCost, buildingType.woodCost)) {
             synchronized (this) {
-                if (!this.isHarvesting.get()) {
+                if (!this.isHarvesting.get() && !this.isBuilding.get()) {
                     worker = new Thread(() -> startBuilding(buildingType));
                     worker.start();
                     return true;
@@ -120,16 +106,13 @@ public class Peasant extends Unit {
      * @param buildingType Type of the building
      */
     private void startBuilding(UnitType buildingType) {
-        // TODO Ensure that only one building can be built at a time - use isBuilding
-        // atomic boolean
-        // TODO Building steps: Remove cost, build the building, wait the wait time
-        // TODO Use Building's createBuilding method to create the building
         isBuilding.set(true);
         this.getOwner().getResources().removeCost(buildingType.goldCost, buildingType.woodCost);
         getOwner().getBuildings().add(Building.createBuilding(buildingType, getOwner()));
         try {
             Thread.sleep(buildingType.buildTime);
         } catch (InterruptedException e) {
+            e.printStackTrace();
         }
         synchronized (this) {
             isBuilding.set(false);

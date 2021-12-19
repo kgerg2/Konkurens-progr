@@ -8,7 +8,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 public class Base {
 
@@ -25,11 +24,7 @@ public class Base {
 
     public Base(String name) {
         this.name = name;
-        // TODO Create the initial 5 peasants - Use the STARTER_PEASANT_NUMBER constant
-        // TODO 3 of them should mine gold
-        // TODO 1 of them should cut tree
-        // TODO 1 should do nothing
-        // TODO Use the createPeasant() method
+
         for (int i = 0; i < STARTER_PEASANT_NUMBER; i++) {
             peasants.add(Peasant.createPeasant(this));
         }
@@ -42,41 +37,20 @@ public class Base {
     }
 
     public void startPreparation() {
-        // TODO Start the building and training preparations on separate threads
-        // TODO Tip: use the hasEnoughBuilding method
         ExecutorService executor = Executors.newCachedThreadPool();
 
-        // TODO Build 3 farms - use getFreePeasant() method to see if there is a peasant
-        // without any work
         build(executor, UnitType.FARM, 3);
-
-        // TODO Create remaining 5 peasants - Use the PEASANT_NUMBER_GOAL constant
-        // TODO 5 of them should mine gold
         train(executor, 3, 5, Peasant::startMining);
-
-        // TODO 2 of them should cut tree
         train(executor, 1, 2, Peasant::startCuttingWood);
+        train(executor, 1, 3, p -> {});
 
-        // TODO 3 of them should do nothing
-        train(executor, 1, 3, p -> {
-        });
-
-        // TODO Use the createPeasant() method
-
-        // TODO Build a lumbermill - use getFreePeasant() method to see if there is a
-        // peasant without any work
         build(executor, UnitType.LUMBERMILL, 1);
-
-        // TODO Build a blacksmith - use getFreePeasant() method to see if there is a
-        // peasant without any work
         build(executor, UnitType.BLACKSMITH, 1);
 
-        // TODO Wait for all the necessary preparations to finish
         executor.shutdown();
         try {
             executor.awaitTermination(1, TimeUnit.HOURS);
         } catch (InterruptedException e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
         }
 
@@ -86,7 +60,6 @@ public class Base {
             }
         }
 
-        // TODO Stop harvesting with the peasants once everything is ready
         System.out.println(this.name + " finished creating a base");
         System.out.println(this.name + " peasants: " + this.peasants.size());
         for (Building b : buildings) {
@@ -97,13 +70,13 @@ public class Base {
 
     private void train(ExecutorService executor, int count, int required, Consumer<Peasant> action) {
         executor.submit(() -> {
-            int goldMinerCount = count;
-            while (goldMinerCount < required) {
+            int peasantCount = count;
+            while (peasantCount < required) {
                 Peasant newPeasant = createPeasant();
                 if (newPeasant != null) {
                     action.accept(newPeasant);
                     peasants.add(newPeasant);
-                    goldMinerCount++;
+                    peasantCount++;
                 } else {
                     sleepForMsec(10);
                 }
@@ -112,16 +85,6 @@ public class Base {
     }
 
     private void build(ExecutorService executor, UnitType type, int required) {
-        // for (int i = 0; i < required; i++) {
-        // executor.submit(() -> {
-        // Peasant p;
-        // do {
-        // do {
-        // p = getFreePeasant();
-        // } while (p == null);
-        // } while (!p.tryBuilding(type));
-        // });
-        // }
         executor.submit(() -> {
             int count = 0;
             while (count < required) {
@@ -145,7 +108,6 @@ public class Base {
      * @return Peasant object, if found one, null if there isn't one
      */
     private Peasant getFreePeasant() {
-        // TODO implement - use the peasant's isFree() method
         synchronized (peasants) {
             for (Peasant peasant : peasants) {
                 if (peasant.isFree()) {
@@ -168,26 +130,20 @@ public class Base {
     private Peasant createPeasant() {
         Peasant result;
         if (resources.canTrain(UnitType.PEASANT.goldCost, UnitType.PEASANT.woodCost, UnitType.PEASANT.foodCost)) {
+            try {
+                trainingLock.lockInterruptibly();
 
-            // TODO 1: Sleep as long as it takes to create a peasant - use sleepForMsec()
-            // method
-            // TODO 2: Remove costs
-            // TODO 3: Update capacity
-            // TODO 4: Use the Peasant class' createPeasant method to create the new Peasant
+                sleepForMsec(UnitType.PEASANT.buildTime);
+                resources.removeCost(UnitType.PEASANT.goldCost, UnitType.PEASANT.woodCost);
+                resources.updateCapacity(UnitType.PEASANT.foodCost);
+                result = Peasant.createPeasant(this);
 
-            // TODO Remember that at one time only one peasant can be trained
-            // return result;
-
-            trainingLock.lock();
-
-            sleepForMsec(UnitType.PEASANT.buildTime);
-            resources.removeCost(UnitType.PEASANT.goldCost, UnitType.PEASANT.woodCost);
-            resources.updateCapacity(UnitType.PEASANT.foodCost);
-            result = Peasant.createPeasant(this);
-
-            trainingLock.unlock();
-
-            return result;
+                return result;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } finally {
+                trainingLock.unlock();
+            }
         }
         return null;
     }
@@ -213,7 +169,6 @@ public class Base {
      * @return true, if required amount is reached (or surpassed), false otherwise
      */
     private boolean hasEnoughBuilding(UnitType unitType, int required) {
-        // TODO check in the buildings list if the type has reached the required amount
         synchronized (buildings) {
             int count = 0;
             for (Building building : buildings) {

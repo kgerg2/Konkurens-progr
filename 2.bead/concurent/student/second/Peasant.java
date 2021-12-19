@@ -10,38 +10,70 @@ public class Peasant extends Personnel {
     private AtomicBoolean isHarvesting = new AtomicBoolean(false);
     private AtomicBoolean isBuilding = new AtomicBoolean(false);
 
+    private Thread worker;
+
     private Peasant(Base owner) {
         super(220, owner, 5, 6, UnitType.PEASANT);
     }
 
-    public static Peasant createPeasant(Base owner){
+    public static Peasant createPeasant(Base owner) {
         return new Peasant(owner);
+    }
+
+    /**
+     * Starts harvesting in a new thread (stored in worker).
+     * 
+     * @param action the harvesting action.
+     */
+    private synchronized void startHarvesting(Runnable action) {
+        while (isBuilding.get()) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                return;
+            }
+        }
+
+        if (isHarvesting.get()) {
+            worker.interrupt();
+        }
+
+        isHarvesting.set(true);
+
+        worker = new Thread(() -> {
+            while (this.isHarvesting.get()) {
+                try {
+                    Thread.sleep(HARVEST_WAIT_TIME);
+                } catch (InterruptedException e) {
+                    break;
+                }
+                action.run();
+            }
+        });
+
+        worker.start();
     }
 
     /**
      * Starts gathering gold.
      */
-    public void startMining(){
-        // TODO Set isHarvesting to true
-        // TODO Start harvesting on a new thread
-        // TODO Harvesting: Sleep for HARVEST_WAIT_TIME, then add the resource - HARVEST_AMOUNT
+    public void startMining() {
         System.out.println("Peasant starting mining");
+        startHarvesting(() -> getOwner().getResources().addGold(HARVEST_AMOUNT));
     }
 
     /**
      * Starts gathering wood.
      */
-    public void startCuttingWood(){
-        // TODO Set isHarvesting to true
-        // TODO Start harvesting on a new thread
-        // TODO Harvesting: Sleep for HARVEST_WAIT_TIME, then add the resource - HARVEST_AMOUNT
+    public void startCuttingWood() {
         System.out.println("Peasant starting cutting wood");
+        startHarvesting(() -> getOwner().getResources().addWood(HARVEST_AMOUNT));
     }
 
     /**
      * Peasant should stop all harvesting once this is invoked
      */
-    public void stopHarvesting(){
+    public void stopHarvesting() {
         this.isHarvesting.set(false);
     }
 
@@ -54,10 +86,16 @@ public class Peasant extends Personnel {
      * @return true, if the building process has started
      *         false, if there are insufficient resources
      */
-    public boolean tryBuilding(UnitType buildingType){
-        // TODO Start building on a separate thread if there are enough resources
-        // TODO Use the Resources class' canBuild method to determine
-        // TODO Use the startBuilding method if the process can be started
+    public boolean tryBuilding(UnitType buildingType) {
+        if (this.getOwner().getResources().canBuild(buildingType.goldCost, buildingType.woodCost)) {
+            synchronized (this) {
+                if (!this.isHarvesting.get() && !this.isBuilding.get()) {
+                    worker = new Thread(() -> startBuilding(buildingType));
+                    worker.start();
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
@@ -67,10 +105,19 @@ public class Peasant extends Personnel {
      *
      * @param buildingType Type of the building
      */
-    private void startBuilding(UnitType buildingType){
-        // TODO Ensure that only one building can be built at a time - use isBuilding atomic boolean
-        // TODO Building steps: Remove cost, build the building, wait the wait time
-        // TODO Use Building's createBuilding method to create the building
+    private void startBuilding(UnitType buildingType) {
+        isBuilding.set(true);
+        this.getOwner().getResources().removeCost(buildingType.goldCost, buildingType.woodCost);
+        getOwner().getBuildings().add(Building.createBuilding(buildingType, getOwner()));
+        try {
+            Thread.sleep(buildingType.buildTime);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        synchronized (this) {
+            isBuilding.set(false);
+            notifyAll();
+        }
     }
 
     /**
@@ -79,9 +126,8 @@ public class Peasant extends Personnel {
      *
      * @return Whether he is free
      */
-    public boolean isFree(){
+    public boolean isFree() {
         return !isHarvesting.get() && !isBuilding.get();
     }
-
 
 }

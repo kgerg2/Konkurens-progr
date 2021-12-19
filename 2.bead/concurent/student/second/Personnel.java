@@ -29,24 +29,35 @@ public abstract class Personnel extends Unit {
      *
      * @param enemyArmy The enemy personnel
      */
-    public void startWar(List<Personnel> enemyArmy){
-        // TODO If the personnel is alive (health more than 0) and there is an enemy army
-        // TODO Select a random enemy as opponent
-        // TODO     use random.nextInt to get a random enemy
-        // TODO     use the opponent field to set the random opponent
-        // TODO Once an opponent is selected, invoke startAttacking()
+    public void startWar(List<Personnel> enemyArmy) {
+        while (health.get() > 0) {
+            synchronized (enemyArmy) {
+                if (enemyArmy.isEmpty())
+                    break;
+
+                opponent = enemyArmy.get(random.nextInt(enemyArmy.size()));
+            }
+
+            startAttacking();
+        }
+
+        if (health.get() <= 0) {
+            getOwner().signalPersonnelDeath(this);
+        }
     }
 
     /**
      * Starts attacking the current opponent.
-     * Keeps attacking the enemy until either this personnel or the enemy personnel is dead.
+     * Keeps attacking the enemy until either this personnel or the enemy personnel
+     * is dead.
      */
-    private void startAttacking(){
-        // TODO Keep attacking until either of them is alive
-        // TODO     use getAttack method do calculate the damage
-        // TODO     invoke opponent's loseHealth with the calculated damage
-        // TODO     wait a random time between the attack wait min and max before next attack
-        // TODO If either dies, reset opponent to null
+    private void startAttacking() {
+        while (health.get() > 0 && opponent.getHealth() > 0) {
+            opponent.loseHealth(getAttack());
+            sleepForMsec(random.nextInt(ATTACK_WAIT_MAXIMUM - ATTACK_WAIT_MINIMUM) + ATTACK_WAIT_MINIMUM);
+        }
+
+        opponent = null;
     }
 
     public int getHealth() {
@@ -55,12 +66,12 @@ public abstract class Personnel extends Unit {
 
     public void loseHealth(int amount) {
         this.health.set(this.health.get() - amount);
-        if(this.health.get() <= 0){
+        if (this.health.get() <= 0) {
             this.getOwner().signalPersonnelDeath(this);
         }
     }
 
-    public int getAttack(){
+    public int getAttack() {
         return random.nextInt(attackMax) + attackMin;
     }
 
